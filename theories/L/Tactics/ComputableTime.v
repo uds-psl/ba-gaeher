@@ -5,7 +5,7 @@ From Undecidability.L Require Export Tactics.Computable.
 Fixpoint timeComplexity t (tt: TT t) : Type :=
   match tt with
     ! _ => unit
-  | @TyArr t1 t2 tt1 tt2 => t1 -> timeComplexity tt1 -> (nat*timeComplexity tt2)
+  | @TyAll t1 t2 tt1 tt2 => forall (x: t1), timeComplexity tt1 -> (nat*timeComplexity (tt2 x))
   end.
 
 Arguments timeComplexity : clear implicits.
@@ -14,7 +14,7 @@ Arguments timeComplexity _ {_}.
 Fixpoint computesTime {t} (ty : TT t) :  forall (x:t) (xInt :term) (xTime :timeComplexity t), Type :=
   match ty with
     !_ => fun x xInt _=> xInt = enc x
-  | @TyArr t1 t2 tt1 tt2 =>
+  | @TyAll t1 t2 tt1 tt2 =>
     fun f fInt fTime =>
       proc fInt * 
       forall (y : t1) yInt (yTime:timeComplexity t1),
@@ -46,9 +46,12 @@ Notation "'computableTime'' f" := (@computableTime _ ltac:(let t:=type of f in r
 
 Local Fixpoint notHigherOrder t (ty : TT t) :=
   match ty with
-    TyArr (TyB _) ty2 => notHigherOrder ty2 
+    @TyAll t1 t2 ty1 ty2 =>
+    (match ty1 with
+      TyB _ =>  fun t2 ty2 => forall (x:t1), notHigherOrder (ty2 x)
+    | _ => fun _ _ => False
+    end) t2 ty2
   | TyB _ => True
-  | _ => False
   end.
 
 Local Lemma computesTime_computes_intern s t (ty: TT t) f evalTime:
@@ -57,8 +60,8 @@ Proof.
   revert s f.
   induction ty;intros s f H int. 
   - exact int. 
-  -destruct ty1; cbn in H. 2:tauto.
-   clear IHty1.
+  -destruct ty; cbn in H. 2:tauto.
+   clear IHty.
    cbn. destruct int as [ps ints]. cbn in ints.
    split. tauto.
    intros. subst.
@@ -74,7 +77,7 @@ Defined.
 
 Hint Extern 10 (@computable ?t ?ty ?f) =>
 (solve [let H:= fresh "H" in eassert (H : @computableTime t ty f _) by exact _;
-                        ( (exact (computableTime_computable (ty:=ty) Logic.I H))|| idtac "Can not derive computable instance from computableTime for higher-order-function" f)]): typeclass_instances.
+                        ( (exact (computableTime_computable (ty:=ty) ltac:(repeat intro;exact Logic.I) H))|| idtac "Can not derive computable instance from computableTime for higher-order-function" f)]): typeclass_instances.
 
 Lemma computesTimeProc t (ty : TT t) (f : t) fInt fT:
   computesTime ty f fInt fT-> proc fInt.
@@ -99,7 +102,7 @@ Proof.
   unfold extT. now destruct H.
 Qed.
 
-Instance extTApp' t1 t2 {tt1:TT t1} {tt2 : TT t2} (f: t1 -> t2) (x:t1) fT xT (Hf : computableTime f fT) (Hx : computableTime x xT) : computableTime (f x) (snd (fT x xT)).
+Instance extTApp' t1 t2 {tt1:TT t1} {tt2 : forall x, TT (t2 x)} (f: forall (x:t1), t2 x) (x:t1) fT xT (Hf : computableTime f fT) (Hx : computableTime x xT) : computableTime (f x) (snd (fT x xT)).
 Proof. 
   destruct Hf as [fInt H], Hx as [xInt xInts].
   eexists (projT1 ((snd H) x xInt xT xInts)). 
@@ -108,7 +111,7 @@ Proof.
   eassumption. 
 Defined.
 
-Lemma extTApp t1 t2 {tt1:TT t1} {tt2 : TT t2} (f: t1 -> t2) (x:t1) fT xT (Hf : computableTime f fT) (Hx : computableTime x xT) :
+Lemma extTApp t1 t2 {tt1:TT t1} {tt2 : forall x, TT (t2 x)} (f: forall (x:t1), t2 x) (x:t1) fT xT (Hf : computableTime f fT) (Hx : computableTime x xT) :
   (extT f) (extT x) >(<= fst (evalTime f x (evalTime x))) extT (f x).
 Proof.
   unfold extT.
@@ -123,15 +126,15 @@ Proof.
   destruct Hf. assumption.
 Defined.
 
-Lemma computesTimeTyArr_helper t1 t2 (tt1 : TT t1) (tt2 : TT t2) f fInt time fT:
+Lemma computesTimeTyArr_helper t1 t2 (tt1 : TT t1) {tt2 : forall x, TT (t2 x)} (f: forall (x:t1), t2 x) fInt time fT:
   proc fInt
   ->
   (forall (y : t1) yT,
       (time y yT<= fst (fT y yT)) * 
   forall (yInt : term),
     computesTime tt1 y yInt yT
-    -> {v : term & evalLe (time y yT) (fInt yInt) v * (proc v -> computesTime tt2 (f y) v (snd (fT y yT)))})%type
--> computesTime (tt1 ~> tt2) f fInt fT.
+    -> {v : term & evalLe (time y yT) (fInt yInt) v * (proc v -> computesTime (tt2 y) (f y) v (snd (fT y yT)))})%type
+-> computesTime (TyAll tt1 tt2) f fInt fT.
 Proof.
   intros H0 H. split. tauto.
   intros y yInt yT yInts.
@@ -167,11 +170,11 @@ Proof.
   edestruct n. destruct e as ([]&?&?). assumption. inv H0. 
 Qed.
 
-Lemma computesTimeExpStep t1 t2 (tt1 : TT t1) (tt2 : TT t2) (f : t1 -> t2) (s:term) k k' fInt fT:
+Lemma computesTimeExpStep t1 t2 (tt1 : TT t1) {tt2 : forall x, TT (t2 x)} (f: forall (x:t1), t2 x) (s:term) k k' fInt fT:
   k' = k -> evalIn k' s fInt -> closed s -> 
   (forall (y : t1) (yInt : term) yT, computesTime tt1 y yInt yT
-                                -> {v : term & computesTimeExp tt2 (f y) (s yInt) (fst (fT y yT) +k) v (snd (fT y yT))}%type) ->
-  computesTimeExp (tt1 ~> tt2) f s k fInt fT.
+                                -> {v : term & computesTimeExp (tt2 y) (f y) (s yInt) (fst (fT y yT) +k) v (snd (fT y yT))}%type) ->
+  computesTimeExp (TyAll tt1 tt2) f s k fInt fT.
 
 Proof.
   intros -> (R1&p1) ? H. split. split. eexists;split. 2:eassumption. omega. tauto. split. split. 2:tauto. rewrite <- R1. tauto. 
@@ -186,13 +189,13 @@ Qed.
 Lemma computesTimeExt X (tt : TT X) (x x' : X) s fT:
   extEq x x' -> computesTime tt x s fT -> computesTime tt x' s fT.
 Proof.
-  induction tt in x,x',s,fT |-*;intros eq.
+  induction tt as [|? ? ? ? IH1 IH2]in x,x',s,fT |-*;intros eq.
   -inv eq. tauto.
   -cbn in eq|-*. intros [H1 H2]. split. 1:tauto.
    intros y t yT ints.
    specialize (H2 y t yT ints ) as (v&R&H2).
    exists v. split. 1:assumption.
-   eapply IHtt2. 2:now eassumption.
+   eapply IH2. 2:now eassumption.
    apply eq.
 Qed.
 
@@ -201,30 +204,30 @@ Lemma computableTimeExt X (tt : TT X) (x x' : X) fT:
   intros ? [s ?]. eexists. eauto using computesTimeExt.
 Defined.
 
+
 Fixpoint changeResType_TimeComplexity t1 (tt1 : TT t1) Y {R: registered Y} {struct tt1}:
   forall (fT: timeComplexity t1) , @timeComplexity _ (projT2 (changeResType tt1 (TyB Y))):= (
   match tt1 with
     @TyB t1 tt1 => fun fT => fT
-  | TyArr tt11 tt12 => fun fT x xT => (fst (fT x xT),changeResType_TimeComplexity (snd (fT x xT)))
+  | TyAll tt11 tt12 => fun fT x xT => (fst (fT x xT),changeResType_TimeComplexity (snd (fT x xT)))
   end).
 
-Lemma cast_registeredAs_TimeComplexity t1 (tt1 : TT t1) Y (R: registered Y) fT (cast : projT1 (resType tt1) -> Y) (f:t1)
-      (Hc : injective cast) :
-  projT2 (resType tt1) = registerAs cast Hc ->
-  computableTime (ty:=projT2 (changeResType tt1 (TyB Y))) (insertCast R cast f) (changeResType_TimeComplexity fT)->
+Lemma cast_registeredAs_TimeComplexity t1 (tt1 : TT t1) X Y (R: registered Y) fT (cast : X -> Y) (f:t1)
+  (Hc : injective cast) (H:isResTypeOf (registerAs cast Hc) tt1):
+  computableTime (ty:=projT2 (changeResType tt1 (TyB Y))) (insertCast R cast H f) (changeResType_TimeComplexity fT)->
   computableTime f fT.
 Proof.
-  intros H [s ints].
-  eexists s.
-  induction tt1 in cast,f,fT,H,s,ints,Hc |- *.
-  -cbn in H,ints|-*;unfold enc in *. rewrite H. exact ints.
-  -destruct ints as (?&ints). split. assumption.
-   intros x s__x int__x T__x.
-   specialize (ints x s__x int__x T__x) as (v &?&ints).
+  intros (s&exts).
+  exists s.
+  induction H.
+  -cbn in exts|-*;unfold enc in *. destruct R. rewrite exts. reflexivity.
+  -destruct exts as (?&exts). split. assumption.
+   intros x s__x ext__x T__x.
+   specialize (exts x s__x ext__x) as (v &?&exts). eassumption.
    exists v. split. tauto.
-   eapply IHtt1_2. all:eassumption.
+   eapply X0. all:eassumption.
 Qed.
-    
+  
 Definition cnst {X} (x:X):nat. exact 0. Qed.
  
 Definition callTime2 X Y
@@ -236,14 +239,14 @@ Arguments callTime2 / {_ _}.
 Fixpoint timeComplexity_leq (t : Type) (tt : TT t) {struct tt} : timeComplexity t -> timeComplexity t -> Prop :=
   match tt in (TT t) return timeComplexity t -> timeComplexity t -> Prop with
   | ! t0 => fun _ _ => True
-  | @TyArr t1 t2 _ tt2 =>
-    fun f f' : timeComplexity (_ -> _) => forall (x:t1) xT, (fst (f x xT)) <= (fst (f' x xT)) /\ timeComplexity_leq (snd (f x xT)) (snd (f' x xT))
+  | @TyAll t1 t2 _ tt2 =>
+    fun f f' : timeComplexity (forall x, _) => forall (x:t1) xT, (fst (f x xT)) <= (fst (f' x xT)) /\ timeComplexity_leq (snd (f x xT)) (snd (f' x xT))
   end.
 
 Lemma computesTime_timeLeq X (tt : TT X) x s fT fT':
   timeComplexity_leq fT fT' -> computesTime tt x s fT -> computesTime tt x s fT'.
 Proof.
-  induction tt in x,s,fT,fT' |-*;intros eq.
+  induction tt as [|? ? ? ? IH1 IH2]in x,s,fT,fT' |-*;intros eq.
   -inv eq. tauto.
   -cbn in eq|-*. intros [H1 H2]. split. 1:tauto.
    intros y t yT ints.

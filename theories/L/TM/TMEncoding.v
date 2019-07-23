@@ -33,7 +33,7 @@ Section finType_eqb.
     apply cast_computableTime.
   Qed.
 
-  Global Instance term_eqb (X:finType) : computableTime' (finType_eqb (X:=X)) (fun x _ => (1,fun y _ => (17 * Init.Nat.min (index x) (index y) + 17,tt))).
+  Global Instance term_finType_eqb (X:finType) : computableTime' (finType_eqb (X:=X)) (fun x _ => (1,fun y _ => (17 * Init.Nat.min (index x) (index y) + 17,tt))).
   Proof.
     extract.
     solverec.
@@ -105,63 +105,185 @@ Qed.
 
 (** *** Encoding vectors *)
 
+Definition vector_enc {X:Type} {intX : registered X} : forall n, encodable (Vector.t X n) :=
+  fix vector_enc (n:nat) (v:Vector.t X n) : term := 
+  match v with
+  | [||] => lam (lam 1)
+  | Vector.cons _ a n0 v' => lam (lam (0 (enc a) (enc n0) (vector_enc n0 v')))
+  end.
+
 Instance register_vector X `{registered X} n : registered (Vector.t X n).
 Proof.
-  apply (registerAs VectorDef.to_list).
-  intros x. induction x.
-  - intros y. pattern y. revert y. eapply VectorDef.case0. cbn. reflexivity.
-  - intros y. clear H. revert h x IHx. pattern n, y. revert n y.
-    eapply Vector.caseS. intros h n y h0 x IHx [=].
-    subst. f_equal. eapply IHx. eassumption.
+  exists (vector_enc (n:=n)).
+  -induction x;cbn;Lproc.
+  -hnf. induction x.
+   +intros y. pattern y. eapply Vector.case0. easy.
+   +intros y . revert h x IHx. pattern n,y. eapply Vector.caseS with (v:=y).
+    clear n y.
+    intros h n y h0 x IHx [=].
+    f_equal. now apply inj_enc. eapply IHx. eassumption.
 Defined.
 
-Instance term_to_list X `{registered X} n : computableTime' (Vector.to_list (A:=X) (n:=n)) (fun _ _ => (1,tt)).
+Lemma vector_enc_correct (X : Type) (intX : registered X) (n:nat) (v : Vector.t X n):
+  forall (s : term), proc s -> forall t : term, proc t -> ((enc v) s) t >(<=2) match v with
+                                                                  | [||] => s
+                                                                  | Vector.cons _ x n v => ((t (enc x)) (enc n)) (enc v)
+                                                                  end.
 Proof.
-  apply cast_computableTime.
+  extract match.
 Qed.
 
-Instance term_vector_map X Y `{registered X} `{registered Y} n (f:X->Y) fT:
-  computableTime' f fT ->
-  computableTime' (VectorDef.map f (n:=n))
-                 (fun l _ => (fold_right (fun (x0 : X) (res : nat) => fst (fT x0 tt) + res + 12) 8 l + 3,tt)).
+Hint Resolve vector_enc_correct : Lrewrite.
+                                       
+Instance termT_cons X `{registered X} : computableTime' (@Vector.cons X) (fun a _ => (1,fun n _ => (1,fun A _ => (1,tt)))).
 Proof.
-  intros ?.
-  computable_casted_result.
-  apply computableTimeExt with (x:= fun x => map f (Vector.to_list x)).
-  2:{
-    extract.
-    solverec.
-  }
-
-  cbn. intros x.
-  clear - x.
-  induction n. revert x. apply VectorDef.case0. easy. revert IHn. apply Vector.caseS' with (v:=x).
-  intros. cbn. f_equal. fold (Vector.fold_right (A:=X) (B:=Y)).
-  setoid_rewrite IHn. reflexivity.
+  extract constructor. solverec.
 Qed.
 
-(* Instance term_vector_map X Y `{registered X} `{registered Y} n (f:X->Y): computable f -> computable (VectorDef.map f (n:=n)). *)
-(* Proof. *)
-(*   intros ?. *)
+Instance term_vector_map X Y `{registered X} `{registered Y}:
+  computableTime' (@VectorDef.map X Y)
+                 (fun f fT => (1,fun n _ => (5,(fun l _ => (Vector.fold_right (fun (x0 : X) (res : nat) => fst (fT x0 tt) + res + 15) l 4,tt))))).
+Proof.
+  unfold VectorDef.map. extract. solverec.
+Qed.
 
-(*   internalize_casted_result. *)
-(*   apply computableExt with (x:= fun x => map f (Vector.to_list x)). *)
-(*   2:{ *)
-(*     extract. *)
-(*   } *)
-
-(*   cbn. intros x.  *)
-(*   clear - x. *)
-(*   induction n. revert x. apply VectorDef.case0. easy. revert IHn. apply Vector.caseS' with (v:=x). *)
-(*   intros. cbn. f_equal. fold (Vector.fold_right (A:=X) (B:=Y)). *)
-(*   setoid_rewrite IHn. reflexivity. *)
-(* Qed. *)
-
+(*
 Fixpoint time_map2 {X Y Z} `{registered X} `{registered Y} `{registered Z} (gT : timeComplexity (X->Y->Z)) (l1 :list X) (l2 : list Y) :=
   match l1,l2 with
   | x::l1,y::l2 => callTime2 gT x y + 18 + time_map2 gT l1 l2
   | _,_ => 9
-  end.
+  end. *)
+
+
+Run TemplateProgram (tmGenEncode "Empty_set_enc" Empty_set).
+Hint Resolve Empty_set_enc_correct : Lrewrite.
+
+Instance TT_empty P: TT (forall e : Empty_set, P e).
+eapply TyAll. exact _. intros [].
+Defined.
+
+Instance term_Empty_set_rect P : computableTime' (Empty_set_rect P) (fun e _ => (0,Empty_set_rect (fun x => _) e)).
+eexists I. split. Lproc.
+intros [].
+Qed.
+
+Definition vector_caseS_const {A : Type} {P : nat -> Type} {n : nat} (v : Vector.t A (S n)) :=
+    match
+      v as v0 in (Vector.t _ n0)
+      return
+      (match n0 as x return (Vector.t A x -> Type) with
+       | 0 => fun _ : Vector.t A 0 => Empty_set -> ID
+       | S n1 => fun v1 : Vector.t A (S n1) => (forall (h : A) (t : Vector.t A n1), P (S n1)) -> P (S n1)
+       end v0)
+    with
+    | [||] => fun devil : Empty_set => Empty_set_rect (fun _ => ID) devil
+    | Vector.cons _ h n0 t => fun (H : forall (h0 : A) (t0 : Vector.t A n0), P (S n0)) => H h t
+    end.
+
+
+Instance term_vector_caseS_const {A : Type} {P : nat -> Type} `{registered A} `{forall n, registered (P n)} :
+  computableTime' (@vector_caseS_const A P)
+                  (fun n _ => (1,fun v _ => (7,(fun f fT => (callTime2 fT (Vector.hd v) (Vector.tl v) + 1,tt))))).
+Proof.
+  cbn [timeComplexity]. extract. Unshelve. 8:{ cbn beta zeta;Lsimpl. }
+  6:{ cbn beta zeta;Lsimpl. } cbn beta zeta.
+  
+  lazymatch goal with
+      | H : Lock _ |- computesTime _ (match ?x with _ => _ end) _ _=>
+    let t := type of x in
+    let _G := fresh "_G" in
+    evar (_G:Prop);only [_G]:(clear - H;clear H;destruct x);
+    unlock H;
+    let t := type of H in
+    unify t _G; clear _G;lock H
+  end. dependent destruct x0.
+  repeat Intern.cstep. solverec. exact Logic.I.
+Qed.
+(*
+Definition hd_tl_helper {A:Type} n : A -> Vector.t A n ->  := fun a b => a.
+
+
+
+Instance term_ht_tl_helper1 {A : Type}`{registered A} :
+  computableTime' (@hd_tl_helper A)
+                  (fun n _ => (1,fun a _ => (1,fun v _ => (1,tt)))).
+Proof.
+  extract.
+ *)
+
+Instance term_vector_hd {A : Type}`{registered A} :
+  computableTime' (@Vector.hd A)
+                  (fun n _ => (1,fun v _ => (1,tt))).
+Proof.
+  eapply computableTimeExt with
+      (x:=fun n v => vector_caseS_const v Basics.const).
+  {intros ? v. dependent destruct v. easy. }
+  Check (_ : TT (forall (_:nat), A)).
+  
+  Hint Extern 10 (computableTime (@vector_caseS_const _ _) _) => (refine term_vector_caseS_const) : typeclass_instances.
+  extract.
+                                                                                
+  eassert (H':=extT (@vector_caseS_const A (fun _ : nat => A))). 
+  Unshelve. 2:exact _.
+  3:{ 
+    refine term_vector_caseS_const. }
+  extract. exact _. }.
+  
+  cbn [timeComplexity]. extract. Unshelve. 8:{ cbn beta zeta;Lsimpl. }
+  6:{ cbn beta zeta;Lsimpl. } cbn beta zeta.
+  
+  lazymatch goal with
+      | H : Lock _ |- computesTime _ (match ?x with _ => _ end) _ _=>
+    let t := type of x in
+    let _G := fresh "_G" in
+    evar (_G:Prop);only [_G]:(clear - H;clear H;destruct x);
+    unlock H;
+    let t := type of H in
+    unify t _G; clear _G;lock H
+  end. dependent destruct x0.
+  repeat Intern.cstep. solverec. exact Logic.I.
+Qed.
+
+Instance term_vector_map2 A B C `{registered A} `{registered B} `{registered C}:
+  computableTime' (@VectorDef.map2 A B C)
+                 (fun f fT => (1,fun n _ => (5,(fun l _ => (1,(fun l' _ => (cnst 0(*Vector.fold_right (fun (x0 : X) (res : nat) => fst (fT x0 tt) + res + 15) l 4*),tt))))))).
+Proof.
+  cbn [id].
+  eapply computableTimeExt with
+      (x:=fix map2 f {n} : VectorDef.t A n -> VectorDef.t B n -> VectorDef.t C n :=
+         match n with
+           0 => fun _ _ => [||]
+         | S n => fun va vb=> let (a,va) := (Vector.hd va,Vector.tl va) in
+                          let (b,vb) := (Vector.hd vb,Vector.tl vb) in
+                          f a b ::: map2 f va vb
+         end).
+  2:{
+    extract. Unshelve. 6:{ Lsimpl. Guarded.
+  Unshelve. Focus 5.
+  
+  unfold VectorDef.map2. extract. solverec.
+Qed.
+
+Instance term_vector_map2 A B C `{registered A} `{registered B} `{registered C}:
+  computableTime' (@VectorDef.map2 A B C)
+                 (fun f fT => (1,fun n _ => (5,(fun l _ => (1,(fun l' _ => (cnst 0(*Vector.fold_right (fun (x0 : X) (res : nat) => fst (fT x0 tt) + res + 15) l 4*),tt))))))).
+Proof.
+  cbn [id].
+  eapply computableTimeExt with
+      (x:=fix map2 f {n} : VectorDef.t A n -> VectorDef.t B n -> VectorDef.t C n :=
+         match n with
+           0 => fun _ _ => [||]
+         | S n => fun va vb=> Vector.caseS'
+                            va _ (fun a va => Vector.caseS'
+                                             vb (fun _ => VectorDef.t C (S n)) (fun b vb => f a b ::: map2 f va vb))
+         end).
+  2:{
+    extract.
+  Unshelve. Focus 5.
+  
+  unfold VectorDef.map2. extract. solverec.
+Qed.
+
 Instance term_map2 n A B C `{registered A} `{registered B} `{registered C} (g:A -> B -> C) gT:
   computableTime' g gT-> computableTime' (Vector.map2 g (n:=n)) (fun l1 _ => (1,fun l2 _ => (time_map2 gT (Vector.to_list l1) (Vector.to_list l2) +8,tt))).
 Proof.
@@ -196,7 +318,7 @@ Proof.
   -intuition.
   -destruct l2;ring_simplify. intuition.
    rewrite H',IHl1. cbn [length]. ring_simplify. intuition.
-Qed.
+Qed.*)
 
 
 Run TemplateProgram (tmGenEncode "move_enc" move).
@@ -273,39 +395,47 @@ Section fix_sig.
 
   End reg_tapes.
 
-  Definition mconfigAsPair {B : finType} {n} (c:mconfig sig B n):= let (x,y) := c in (x,y).
+  Definition mconfig_enc {states : finType} {R2 : registered states} {n:nat} : encodable (mconfig sig states n) :=
+    fun c => match c return term with
+            mk_mconfig a b => lam ((var 0 (enc a)) (enc b))
+          end.
 
-  Global Instance registered_mconfig (B : finType) `{registered B} n: registered (mconfig sig B n).
+  Instance register_mconfig (states : finType) (R2 : registered states) (n:nat) : registered (mconfig sig states n).
   Proof.
-    eapply (registerAs mconfigAsPair). clear.
-    register_inj.
+    exists mconfig_enc.
+    -induction x;cbn;Lproc.
+    -intros [] [] [= H1 H2]. eapply inj_enc in H1. apply inj_enc in H2. easy.
   Defined.
 
-  Global Instance term_mconfigAsPair (B : finType) `{registered B} n: computableTime' (@mconfigAsPair B n) (fun _ _ => (1,tt)).
+  Lemma mconfig_enc_correct (states : finType) (R2 : registered states) (n:nat) (c : mconfig sig states n):
+    forall (s : term), proc s -> (enc c) s >(<=1) (match c with mk_mconfig a b => (app s (enc a)) (enc b) end).
   Proof.
-    apply cast_computableTime.
+    extract match.
   Qed.
 
-  Global Instance term_cstate (B : finType) `{registered B} n: computableTime' (@cstate sig B n) (fun _ _ => (7,tt)).
+  Hint Resolve mconfig_enc_correct : Lrewrite.
+  
+  Instance term_mk_mconfig (states : finType) (R2 : registered states) (n:nat): computableTime' (@mk_mconfig sig states n)
+                                                                                         (fun a _ => (1,fun b _ => (1,tt))).
   Proof.
-    apply computableTimeExt with (x:=fun x => fst (mconfigAsPair x)).
-    2:{extract. solverec. }
-    intros [];reflexivity.
+    extract constructor. solverec.
   Qed.
 
-  Global Instance term_ctapes (B : finType) `{registered B} n: computableTime' (@ctapes sig B n) (fun _ _ => (7,tt)).
+  Global Instance term_cstate (B : finType) `{registered B} n: computableTime' (@cstate sig B n) (fun _ _ => (5,tt)).
   Proof.
-    apply computableTimeExt with (x:=fun x => snd (mconfigAsPair x)).
-    2:{extract. solverec. }
-    intros [];reflexivity.
-  Qed.
-
-  Global Instance registered_mk_mconfig (B : finType) `{registered B} n: computableTime' (@mk_mconfig sig B n) (fun _ _ => (1,fun _ _ => (3,tt))).
-  Proof.
-    computable_casted_result.
     extract. solverec.
   Qed.
+
+  Global Instance term_ctapes (B : finType) `{registered B} n: computableTime' (@ctapes sig B n) (fun _ _ => (5,tt)).
+  Proof.
+    extract. solverec.
+  Qed.
+
 End fix_sig.
+
+Hint Resolve mconfig_enc_correct : Lrewrite.
+Hint Resolve tape_enc_correct : Lrewrite.
+
 
 
 (* Fixpoint time_loop f fT p pT := cnst 1. *)
@@ -317,8 +447,6 @@ Definition Halt :{ '(Sigma, n) : _ & mTM Sigma n & tapes Sigma n} -> _ :=
   fun '(existT2 _ _ (Sigma, n) M tp) =>
     exists (f: mconfig _ (states M) _), halt (cstate f) = true
                                    /\ exists k, loopM (mk_mconfig (start M) tp) k = Some f.
-
-Hint Resolve tape_enc_correct : Lrewrite.
 
 Fixpoint loopTime {X} `{registered X} f (fT: timeComplexity (X -> X)) (p: X -> bool) (pT : timeComplexity (X -> bool)) (a:X) k :=
   fst (pT a tt) +
@@ -346,28 +474,51 @@ Section loopM.
   Let reg_states := @registered_finType (states M).
   Existing Instance reg_states.
 
+  Run TemplateProgram (tmGenEncode "False_enc" False).
+  Hint Resolve False_enc_correct : Lrewrite.
 
-  Instance term_vector_eqb X `{registered X} (n' m:nat) (eqb:X->X->bool) eqbT:
-    computableTime' eqb eqbT
-    -> computableTime'
-        (VectorEq.eqb eqb (A:=X) (n:=n') (m:=m))
-        (fun A _ => (1,fun B _ => (list_eqbTime eqbT (Vector.to_list A) (Vector.to_list B) + 9,tt))).
+  Fixpoint vector_eqbTime {X} `{registered X} (eqbT: timeComplexity (X -> X -> bool)) {n m} (A : Vector.t X n) (B:Vector.t X m) :=
+    match A,B with
+      a:::A,b:::B => callTime2 eqbT a b + 25 + vector_eqbTime eqbT A B
+    | _,_ => 10
+    end.
+
+ 
+
+  Instance term_vector_eqb X `{registered X}:
+    computableTime'
+      (@VectorEq.eqb X)
+      (fun eqb T__eqb => (1,fun m _ => (5, fun n _ => (1,fun A _ => (1,fun B _ => (vector_eqbTime T__eqb A B,tt)))))).
   Proof.
-    intros ?.
-    apply computableTimeExt with (x:=(fun x y => list_eqb eqb (Vector.to_list x) (Vector.to_list y))).
-    2:{extract.
-       solverec. }
-    intros v v'. hnf.
-    induction v in n',v'|-*;cbn;destruct v';cbn;try tauto. rewrite <- IHv. f_equal.
+    extract. Unshelve. all:try solve [exact Logic.I|exact True]. solverec.
   Qed.
 
-
-  Lemma to_list_length X n0 (l:Vector.t X n0) :length l = n0.
+  Definition vector_eqbTime_leq {X} `{registered X} (eqbT: timeComplexity (X -> X -> bool)) {n' m} (A : Vector.t X n') (B:Vector.t X m) k:
+    (forall a b, callTime2 eqbT a b <= k)
+    -> vector_eqbTime eqbT A B <= min n' m * (k+25) + 10.
   Proof.
-    induction l. reflexivity. rewrite <- IHl at 3. reflexivity.
+    intros H'. induction A in m,B|-*.
+    -cbn. omega.
+    -destruct B.
+     {cbn. intuition. }
+     cbn - [callTime2]. setoid_rewrite IHA.
+     rewrite H'. ring_simplify. intuition.
   Qed.
+  (*
+  Lemma list_eqbTime_bound_r {X} `{registered X} (eqbT: timeComplexity (X -> X -> bool)) {n' m} (A : Vector.t X n') (B:Vector.t X m) f:
+    (forall (x y:X), callTime2 eqbT x y <= f y) ->
+    vector_eqbTime eqbT A B <= sumn (map f B) + 10 + m * 25.
+  Proof.
+    intros H'.
+    induction A in m,B|-*;unfold list_eqbTime;fold list_eqbTime. cbn. now Lia.lia.
+    destruct B.
+    -cbn. Lia.lia.
+    -cbn [vector_eqbTime sumn map]. rewrite H',IHA. Lia.lia.
+  Qed.*)
 
-  Definition transTime := (length (elem (states M) )*17 + n * 17 * (length ( elem sig )+ 4) + 71) * length (funTable (trans (m:=M))) + 16.
+  
+
+  Definition transTime := (length (elem (states M) )*17 + n * 17 * (length ( elem sig )+ 4) + 71) * length (funTable (trans (m:=M))) + 24.
 
   (** *** Computability of transition relation *)
   Instance term_trans : computableTime' (trans (m:=M)) (fun _ _ => (transTime,tt)).
@@ -388,11 +539,11 @@ Section loopM.
        -intros y. unfold callTime2.
         cbn [fst snd]. ring_simplify.
         setoid_rewrite index_leq at 1 2. rewrite Nat.min_id.
-        rewrite list_eqbTime_leq with (k:= | elem sig| * 17 + 29).
-        +rewrite to_list_length. ring_simplify. omega.
+        rewrite vector_eqbTime_leq with (k:= | elem sig| * 17 + 29).
+        +nia.
         +intros [] [];unfold callTime2;cbn [fst snd].
          setoid_rewrite index_leq at 1 2. rewrite Nat.min_id.
-         all:ring_simplify. all:omega.
+         all:nia.
     }
     cbn -[t] ;intro. subst t.  setoid_rewrite lookup_funTable. reflexivity.
     apply prod_eqb_spec. apply finType_eqb_reflect. apply vector_eqb_spec,LOptions.option_eqb_spec,finType_eqb_reflect.
@@ -404,14 +555,13 @@ Section loopM.
     solverec.
   Qed.
 
-  Instance term_current_chars: computableTime' (current_chars (sig:=sig) (n:=n))  (fun _ _ => (n * 22 +12,tt)).
+  Instance term_current_chars: computableTime' (current_chars (sig:=sig) (n:=n))  (fun _ _ => (n * 25 +12,tt)).
   Proof.
     extract.
     solverec.
-    assert (H1:forall X (l:list X), fold_right (fun _ (res : nat) => 10 + res + 12) 8 l = length l * 22 +8).
-    {induction l;ring_simplify;cbn [fold_right length]. now intuition. rewrite IHl.  omega. }
-    rewrite H1,to_list_length.  omega.
-  Qed.
+    clear - x.
+    induction x;cbn [Vector.fold_right];try nia.
+  Qed. 
 
   Definition step' (c :  mconfig sig (states M) n) : mconfig sig (states M) n :=
     let (news, actions) := trans (cstate c, current_chars (ctapes c)) in

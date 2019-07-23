@@ -23,30 +23,30 @@ Arguments enc : simpl never.  (* Never unfold with cbn/simpl *)
 
 Inductive TT : Type -> Type :=
   TyB t (R : registered t) : TT t
-| TyArr t1 t2 (tt1 : TT t1) (tt2 : TT t2)
-  : TT (t1 -> t2).
+| TyAll t1 t2 (tt1 : TT t1) (tt2 : (forall x : t1, TT (t2 x)))
+  : TT (forall x : t1, t2 x).
 
 Existing Class TT.
 Existing Instance TyB.
-Existing Instance TyArr.
+Existing Instance TyAll.
   
 Arguments TyB _ {_}.
-Arguments TyArr {_} {_} _ _.
+Arguments TyAll {_} {_} _ _.
 
 Hint Mode TT + : typeclass_instances. (* treat argument as input and force evar-freeness*)
 
 Notation "! X" := (TyB X) (at level 69).
-Notation "X ~> Y" := (TyArr X Y) (right associativity, at level 70).
+Notation "X ~> Y" := (TyAll X (fun _ => Y)) (right associativity, at level 70).
 
 
 Fixpoint computes {A} (tau : TT A) {struct tau}: A -> L.term -> Type :=
   match tau with
     !_ => fun x xInt => (xInt = enc x)
-  | @TyArr A B tau1 tau2 =>
+  | @TyAll A B tau1 tau2 =>
     fun f t_f  =>
       proc t_f * forall (a : A) t_a,
         computes tau1 a t_a
-        ->  {v : term & (t_f t_a >* v) * computes tau2 (f a) v}
+        ->  {v : term & (t_f t_a >* v) * computes (tau2 a) (f a) v}
   end%type.
 
 Lemma computesProc t (ty : TT t) (f : t) fInt:
@@ -91,7 +91,7 @@ Proof.
   unfold ext. now destruct R.
 Qed.
 
-Instance extApp' t1 t2 {tt1:TT t1} {tt2 : TT t2} (f: t1 -> t2) (x:t1) (Hf : computable f) (Hx : computable x) : computable (f x).
+Instance extApp' t1 t2 {tt1:TT t1} {tt2 : forall x, TT (t2 x)} (f: forall (x:t1), t2 x) (x:t1) (Hf : computable f) (Hx : computable x) : computable (f x).
 Proof.
   destruct Hf, Hx.
   edestruct extCorrect0 as [? H].
@@ -100,7 +100,7 @@ Proof.
   now eapply (@Build_computable _ _ _ x0). 
 Defined.  
 
-Lemma extApp t1 t2 {tt1:TT t1} {tt2 : TT t2} (f: t1 -> t2) (x:t1) (Hf : computable f) (Hx : computable x) :
+Lemma extApp t1 t2 {tt1:TT t1} {tt2 : forall x, TT (t2 x)} (f: forall (x:t1), t2 x) (x:t1) (Hf : computable f) (Hx : computable x) :
   (ext f) (ext x) >* ext (f x).
 Proof.
   unfold ext, extApp'.
@@ -159,7 +159,7 @@ Qed.
 Fixpoint extEq t {tt:TT t} : t -> t -> Prop:=
   match tt with
     TyB _ => eq
-  | @TyArr t1 t2 tt1 tt2 => fun f f' => forall (x : t1), extEq (f x) (f' x)
+  | @TyAll t1 t2 tt1 tt2 => fun f f' => forall (x : t1), extEq (f x) (f' x)
   end.
 
 
@@ -174,13 +174,13 @@ Qed.
 Lemma computesExt X (tt : TT X) (x x' : X) s:
   extEq x x' -> computes tt x s -> computes tt x' s.
 Proof.
-  induction tt in x,x',s |-*;intros eq.
+  induction tt as [|? ? ? ? IH1 IH2 ]in x,x',s |-*;intros eq.  
   -inv eq. tauto.
   -cbn in eq|-*. intros [H1 H2]. split. 1:tauto.
    intros y t exts.
    specialize (H2 y t exts) as (v&R&H2).
    exists v. split. 1:assumption.
-   eapply IHtt2. 2:now eassumption.
+   eapply IH2. 2:now eassumption.
    apply eq.
 Qed.
 
@@ -203,39 +203,35 @@ Arguments registerAs {_ _ _} _ _.
 Fixpoint changeResType t1 t2 (tt1:TT t1) (tt2 : TT t2) : {t & TT t}:=
   match tt1 with
     TyB _ => existT _ t2 tt2
-  | TyArr tt11 tt12 =>
-    existT _ _ (TyArr tt11 (projT2 (changeResType tt12 tt2)))
+  | TyAll tt11 tt12 =>
+    existT _ _ (TyAll tt11 (fun x => projT2 (changeResType (tt12 x) tt2)))
   end.
 
-Fixpoint resType t1 (tt1 : TT t1) : {t & registered t} :=
-  match tt1 with
-    @TyB _ R => existT _ _ R
-  | TyArr _ t2 => resType t2
+Inductive isResTypeOf {t} (R:registered t) : forall {t1}, TT t1 -> Type :=
+  isResTypeOfB : isResTypeOf R (TyB t)
+| isResTypeOfAll t1 t2 (tt1:TT t1) (tt2: forall x, TT (t2 x)) : (forall x: t1, isResTypeOf R (tt2 x)) -> isResTypeOf R (TyAll tt1 tt2).
+
+Fixpoint insertCast t1 (tt1 : TT t1) X Y (R__X : registered X) (R__Y: registered Y) (cast : X -> Y) (H:isResTypeOf R__X tt1){struct H}:
+  t1 -> projT1 (changeResType tt1 (TyB Y)) :=
+  match H  with
+    isResTypeOfB _ => fun x => cast x
+  | @isResTypeOfAll _ _ t1 t2 tt1 tt2 H => fun f x => (insertCast (tt1:=tt2 x) _ cast (H x)) (f x)
   end.
 
-Fixpoint insertCast t1 (tt1 : TT t1) Y (R: registered Y) {struct tt1}:
-  forall (cast : projT1 (resType tt1) -> Y) (f : t1), projT1 (changeResType tt1 (TyB Y)) :=
-  match tt1 with
-    TyB _ => fun cast x => cast x
-  | TyArr tt11 tt12 => fun cast f x=> (insertCast (tt1:=tt12) R cast (f x))
-  end.
-
-
-Lemma cast_registeredAs t1 (tt1 : TT t1) Y (R: registered Y) (cast : projT1 (resType tt1) -> Y) (f:t1)
-  (Hc : injective cast) :
-  projT2 (resType tt1) = registerAs cast Hc ->
-  computable (ty:=projT2 (changeResType tt1 (TyB Y))) (insertCast R cast f) ->
+Lemma cast_registeredAs t1 (tt1 : TT t1) X Y (R: registered Y) (cast : X -> Y) (f:t1)
+  (Hc : injective cast) (H:isResTypeOf (registerAs cast Hc) tt1):
+  computable (ty:=projT2 (changeResType tt1 (TyB Y))) (insertCast R cast H f) ->
   computable f.
 Proof.
-  intros H (s&exts).
+  intros (s&exts).
   exists s.
-  induction tt1 in cast,f,H,s,exts,Hc |- *.
-  -cbn in H,exts|-*;unfold enc in *. rewrite H. exact exts.
+  induction H.
+  -cbn in exts|-*;unfold enc in *. destruct R. rewrite exts. reflexivity.
   -destruct exts as (?&exts). split. assumption.
    intros x s__x ext__x.
    specialize (exts x s__x ext__x) as (v &?&exts).
    exists v. split. tauto.
-   eapply IHtt1_2. all:eassumption.
+   eapply X0. all:eassumption.
 Qed.
 
 Opaque computes.

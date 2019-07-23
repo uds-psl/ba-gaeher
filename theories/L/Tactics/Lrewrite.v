@@ -107,26 +107,24 @@ Ltac LrewriteTime_solveGoals :=
     (* Computability: *)
   | |- @ext _ (@TyB _ _)  _ ?inted >* _ =>
     (progress rewrite (ext_is_enc);[>LrewriteTime_solveGoals..]) || Lreflexivity
-  | |- app (@ext _ (_ ~> _ ) _ _) (ext _) >* _ => etransitivity;[apply extApp|LrewriteTime_solveGoals]
-  | |- app (@ext _ (_ ~> _ ) _ ?ints) (@enc _ ?reg ?x) >* ?v =>
+  | |- app (@ext _ (TyAll _ _) _ _) (ext _) >* _ => etransitivity;[apply extApp|cbn beta (* reduce TyAll instances when possible *);LrewriteTime_solveGoals]
+  | |- app (@ext _ (TyAll _ _ ) _ ?ints) (@enc _ ?reg ?x) >* ?v =>
     change (app (@ext _ _ _ ints) (@ext _ _ _ (reg_is_ext reg x)) >* v);LrewriteTime_solveGoals
 
                                                                           
-
-
   (* Complexity*)
   | |- @extT _ (@TyB _ _) _ _ ?inted >(<= _ ) _ =>
     (progress rewrite (extT_is_enc);[>LrewriteTime_solveGoals..]) || Lreflexivity
-  | |- app (@extT _ (_ ~> _ ) _ _ ?fInts) (@extT _ _ _ _ ?xInts) >(<= _ ) _ => eapply redLe_trans;
+  | |- app (@extT _ (TyAll _ _ ) _ _ ?fInts) (@extT _ _ _ _ ?xInts) >(<= _ ) _ => eapply redLe_trans;
     [let R := fresh "R" in
-     specialize (extTApp fInts xInts) as R;
+     specialize (extTApp fInts xInts) as R;cbn beta (* reduce TyAll instances when possible *) in R;
      lazymatch type of R with
        (* As we might build n using the projection on an on-ty-fly constructed computableTime-instance, we mustavoid it to depend on the proof that the time function is correct*)
        ?s >(<= ?n) ?t => let n' := eval unfold evalTime in n in
                           change (s >(<= n') t) in R
      end; exact R
     |LrewriteTime_solveGoals] 
-  | |- app (@extT _ (_ ~> _ ) _ _ ?ints) (@enc _ ?reg ?x) >(<= ?k ) ?v =>
+  | |- app (@extT _ (TyAll _ _ ) _ _ ?ints) (@enc _ ?reg ?x) >(<= ?k ) ?v =>
     change (app (@extT _ _ _ _ ints) (@extT _ _ _ _ (reg_is_extT reg x)) >(<= k) v);LrewriteTime_solveGoals
 
   (*| xInts : computes ?ty ?x ?xInt _
@@ -225,7 +223,7 @@ Ltac Lrewrite_new' :=
 
            let appTimeHelper tt:=
                (lazymatch goal with
-                | |- app (@extT _ (_ ~> _ ) _ _ ?fInts) (@extT _ _ _ _ ?xInts) >(<= _ ) _
+                | |- app (@extT _ (TyAll _ _ ) _ _ ?fInts) (@extT _ _ _ _ ?xInts) >(<= _ ) _
                   => let R := fresh "R" in
                     specialize (extTApp fInts xInts) as R;
                     lazymatch type of R with
@@ -233,18 +231,18 @@ Ltac Lrewrite_new' :=
                       ?s >(<= ?n) ?t => (
                         let n' := eval unfold evalTime in n in
                             change (s >(<= n') t) in R)
-                    end; Ltransitivity;[exact R|]
+                    end; Ltransitivity;[exact R|cbn beta (* reduce TyAll instances when possible *)]
                 end) in
 
            (* use correctness lemmates of int here*)
            lazymatch goal with                
-           | |- L.app (@ext _ (_ ~> _ ) _ _) (ext _) >* _ => Ltransitivity;[apply extApp|]
-           | |- L.app (@ext _ (_ ~> _ ) _ ?ints) (@enc _ ?reg ?x) >* ?v =>
+           | |- L.app (@ext _ (TyAll _ _ ) _ _) (ext _) >* _ => Ltransitivity;[apply extApp|cbn beta (* reduce TyAll instances when possible *)]
+           | |- L.app (@ext _ (TyAll _ _ ) _ ?ints) (@enc _ ?reg ?x) >* ?v =>
              change (app (@ext _ _ _ ints) (@ext _ _ _ (reg_is_ext reg x)) >* v);
-             Ltransitivity;[apply extApp|]
+             Ltransitivity;[apply extApp|cbn beta (* reduce TyAll instances when possible *)]
 
-           | |- L.app (@extT _ (_ ~> _ ) _ _ ?fInts) (@extT _ _ _ _ ?xInts) >(<= _ ) _ => appTimeHelper tt
-           | |- L.app (@extT _ (_ ~> _ ) _ _ ?ints) (@enc _ ?reg ?x) >(<= ?k ) ?v =>
+           | |- L.app (@extT _ (TyAll _ _ ) _ _ ?fInts) (@extT _ _ _ _ ?xInts) >(<= _ ) _ => appTimeHelper tt
+           | |- L.app (@extT _ (TyAll _ _ ) _ _ ?ints) (@enc _ ?reg ?x) >(<= ?k ) ?v =>
              change (L.app (@extT _ _ _ _ ints) (@extT _ _ _ _ (reg_is_extT reg x)) >(<= k) v);appTimeHelper tt                                                            
            | |- _ => idtac
 

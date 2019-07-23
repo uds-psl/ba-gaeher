@@ -16,7 +16,7 @@ Section Fix_X.
     extract constructor.
     solverec.
   Defined.
-
+  
   Lemma oenc_correct_some (s: option X) (v : term) : lambda v -> enc s == ext (@Some X) v -> exists s', s = Some s' /\ v = enc s'.
   Proof.
     intros lam_v H. unfold ext in H;cbn in H. unfold extT in H; cbn in H. redStep in H.
