@@ -63,7 +63,7 @@ End option_eqb.
 Section int.
 
   Variable X:Type.
-  Context {HX : registered X}.
+  Context `{HX : registered X}.
 
   Global Instance term_option_eqb : computableTime' (@option_eqb X)
                                                     (fun eqb eqbT => (1, fun a _ => (1,fun b _ => (match a,b with
@@ -87,9 +87,5 @@ Lemma size_option X `{registered X} (l:option X):
   size (enc l) = match l with Some x => size (enc x) + 5 | _ => 3 end.
 Proof.
   change (enc l) with (option_enc l).
-  destruct l. all:cbn [option_enc map sumn size].
-  change ((match H with
-           | @mk_registered _ enc _ _ => enc
-           end x)) with (enc x).
-  all:lia. 
+  destruct l. all:cbn [option_enc map sumn size]. all:Intern.fold_encs. all:nia. 
 Qed.

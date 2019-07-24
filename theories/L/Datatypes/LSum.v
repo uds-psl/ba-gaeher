@@ -4,8 +4,8 @@ From Undecidability.L Require Import Tactics.GenEncode.
 (** ** Encoding of sum type *)
 Section Fix_XY.
   Variable X Y:Type.
-  Context {intX : registered X}.
-  Context {intY : registered Y}.
+  Context `{intX : registered X}.
+  Context `{intY : registered Y}.
 
   
   

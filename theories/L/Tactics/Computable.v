@@ -6,14 +6,15 @@ Require Import PslBase.Bijection String.
 (* Typeclass for registering types *)
 
 
-Class registered (X : Type) := mk_registered
+Class registered (X : Type) {enc : encodable X}  := mk_registered
   {
-    enc :> encodable X ; (* the encoding function for X *)
     proc_enc : forall x, proc (enc x) ; (* encodings need to be a procedure *)
     inj_enc : injective enc (* encoding is injective *)
   }.
 
-Hint Mode registered + : typeclass_instances. (* treat argument as input and force evar-freeness*)
+Arguments registered _ {_}.
+
+Hint Mode registered + -: typeclass_instances. (* treat argument as input and force evar-freeness*)
 
 Arguments enc : simpl never.  (* Never unfold with cbn/simpl *)
 
@@ -22,7 +23,7 @@ Arguments enc : simpl never.  (* Never unfold with cbn/simpl *)
 (* Definition of the valid types for extraction *)
 
 Inductive TT : Type -> Type :=
-  TyB t (R : registered t) : TT t
+  TyB t `{R : registered t} : TT t
 | TyArr t1 t2 (tt1 : TT t1) (tt2 : TT t2)
   : TT (t1 -> t2).
 
@@ -30,7 +31,7 @@ Existing Class TT.
 Existing Instance TyB.
 Existing Instance TyArr.
   
-Arguments TyB _ {_}.
+Arguments TyB _ {_ _}.
 Arguments TyArr {_} {_} _ _.
 
 Hint Mode TT + : typeclass_instances. (* treat argument as input and force evar-freeness*)
@@ -80,7 +81,7 @@ Proof.
 Qed.
 
 
-Instance reg_is_ext ty (R : registered ty) (x : ty) : computable x.
+Instance reg_is_ext ty `{R : registered ty} (x : ty) : computable x.
 Proof.
   exists (enc x). reflexivity.
 Defined.
@@ -109,7 +110,7 @@ Proof.
   destruct correct0 as (?&?&?). tauto. 
 Qed.
 
-Lemma ext_is_enc t1 (R:registered t1) (x: t1) (Hf : computable x) :
+Lemma ext_is_enc t1 `{R:registered t1} (x: t1) (Hf : computable x) :
   @ext _ _ x Hf = enc x.
 Proof.
   now destruct Hf. 
@@ -191,12 +192,12 @@ Defined.
 
 (** register a datatype via an (injectve) function to another, e.g. vectors as lists *)
 
-Lemma registerAs X Y `{registered X} (f:Y -> X) : injective f -> registered Y.
+Lemma registerAs X Y `{R:registered X} (f:Y -> X) : injective f -> @registered Y (fun y => enc (f y)).
 Proof.
-  intros Hf. eexists (fun x => enc (f x)). now destruct H.
-  intros ? ? ?. now eapply H, Hf in H0.
+  intros Hf. split. now destruct R.
+  intros ? ? ?. now eapply R, Hf in H.
 Defined.
-Arguments registerAs {_ _ _} _ _.
+Arguments registerAs {_ _ _ _} _ _.
 
 (** Support for extracting registerAs-ed functions *)
 
@@ -207,30 +208,30 @@ Fixpoint changeResType t1 t2 (tt1:TT t1) (tt2 : TT t2) : {t & TT t}:=
     existT _ _ (TyArr tt11 (projT2 (changeResType tt12 tt2)))
   end.
 
-Fixpoint resType t1 (tt1 : TT t1) : {t & registered t} :=
+Fixpoint resType t1 (tt1 : TT t1) : {t & {enc : encodable t & registered t}} :=
   match tt1 with
-    @TyB _ R => existT _ _ R
+    @TyB _ _ R => existT _ _ (existT _ _ R)
   | TyArr _ t2 => resType t2
   end.
 
-Fixpoint insertCast t1 (tt1 : TT t1) Y (R: registered Y) {struct tt1}:
+Fixpoint insertCast t1 (tt1 : TT t1) Y `{R: registered Y} {struct tt1}:
   forall (cast : projT1 (resType tt1) -> Y) (f : t1), projT1 (changeResType tt1 (TyB Y)) :=
   match tt1 with
     TyB _ => fun cast x => cast x
-  | TyArr tt11 tt12 => fun cast f x=> (insertCast (tt1:=tt12) R cast (f x))
+  | TyArr tt11 tt12 => fun cast f x=> (insertCast (tt1:=tt12) cast (f x))
   end.
 
 
-Lemma cast_registeredAs t1 (tt1 : TT t1) Y (R: registered Y) (cast : projT1 (resType tt1) -> Y) (f:t1)
+Lemma cast_registeredAs t1 (tt1 : TT t1) Y `{R: registered Y} (cast : projT1 (resType tt1) -> Y) (f:t1)
   (Hc : injective cast) :
-  projT2 (resType tt1) = registerAs cast Hc ->
-  computable (ty:=projT2 (changeResType tt1 (TyB Y))) (insertCast R cast f) ->
+  projT2 (resType tt1) = existT _ _ (registerAs cast Hc) ->
+  computable (ty:=projT2 (changeResType tt1 (TyB Y))) (insertCast cast f) ->
   computable f.
 Proof.
   intros H (s&exts).
   exists s.
   induction tt1 in cast,f,H,s,exts,Hc |- *.
-  -cbn in H,exts|-*;unfold enc in *. rewrite H. exact exts.
+  -cbn in H,exts|-*;unfold enc in *. inversion H. exact exts.
   -destruct exts as (?&exts). split. assumption.
    intros x s__x ext__x.
    specialize (exts x s__x ext__x) as (v &?&exts).

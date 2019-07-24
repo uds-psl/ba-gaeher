@@ -142,7 +142,8 @@ Class extracted {A : Type} (a : A) := int_ext : L.term.
 Arguments int_ext {_} _ {_}.
 Typeclasses Transparent extracted. (* This is crucial to use this inside monads  *)
 
-Class encodable (A : Type) := enc_f : A -> L.term.  
+Class encodable (A : Type) := enc : A -> L.term.  
+Hint Mode encodable + : typeclass_instances. (* treat argument as input and force evar-freeness*)
 
 (** Construct quoted L terms and natural numbers *)
 
@@ -216,7 +217,7 @@ Definition encode_arguments (B : term) (a i : nat) A_j :=
       A <- tmUnquoteTyped Type A_j ;;
       name <- (tmEval cbv (name_of A_j ++ "_term") >>=  tmFreshName)  ;;
       E <- tmTryInfer name None (encodable A);;
-      t <- tmEval hnf (@enc_f A E);;
+      t <- tmEval hnf (@enc A E);;
       l <- tmQuote t;;
       ret (tApp l [tRel (a - i - 1) ]).
 

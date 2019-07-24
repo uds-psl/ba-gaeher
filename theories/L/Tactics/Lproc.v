@@ -30,7 +30,7 @@ Ltac fLproc :=intros;
 Ltac Lproc' :=
   lazymatch goal with
   | |- lambda (match ?c with _ => _ end) => destruct c;now repeat Lproc'
-  | |- lambda (@enc ?t ?H ?x) => exact (proc_lambda (@proc_enc t H x))
+  | |- lambda (@enc ?X ?H ?x) => exact (proc_lambda (@proc_enc X H _ x))
   | |- lambda (@ext ?X ?tt ?x ?H) => exact (proc_lambda (@proc_ext X tt x H))
   | |- lambda (@extT ?X ?tt ?x _ ?H) => exact (proc_lambda (@proc_extT X tt x _ H))
   (*| |- lambda (@ext_ext ?X ?x ?H) => exact (proc_lambda (@proc_extT X tt x _))*)
@@ -48,8 +48,8 @@ Ltac Lproc' :=
     exact (closed_dcl_x k (proc_closed (@proc_extT X tt x _ H)))
   (*| |- bound ?k (@extT ?X ?tt ?x ?H) =>
       exact (closed_dcl_x k (proc_closed (@extT_proc X tt x H)))*)
-  | |- bound ?k (@enc ?t ?H ?x) =>
-    exact (closed_dcl_x k (proc_closed (@proc_enc t H x)))
+  | |- bound ?k (@enc ?X ?H ?x) =>
+    exact (closed_dcl_x k (proc_closed (@proc_enc X H _ x)))
   | |- bound _ ?s => refine (closed_dcl_x _ _); (trivial with LProc || (apply proc_closed;trivial with LProc || tauto) || tauto )
   end.
 

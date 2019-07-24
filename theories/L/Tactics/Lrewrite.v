@@ -239,15 +239,17 @@ Ltac Lrewrite_new' :=
            (* use correctness lemmates of int here*)
            lazymatch goal with                
            | |- L.app (@ext _ (_ ~> _ ) _ _) (ext _) >* _ => Ltransitivity;[apply extApp|]
-           | |- L.app (@ext _ (_ ~> _ ) _ ?ints) (@enc _ ?reg ?x) >* ?v =>
-             change (app (@ext _ _ _ ints) (@ext _ _ _ (reg_is_ext reg x)) >* v);
+           | |- L.app (@ext _ (_ ~> _ ) _ ?ints) (@enc _ _ ?x) >* ?v =>
+             change (app (@ext _ _ _ ints) (@ext _ _ _ (reg_is_ext _ x)) >* v);
              Ltransitivity;[apply extApp|]
 
            | |- L.app (@extT _ (_ ~> _ ) _ _ ?fInts) (@extT _ _ _ _ ?xInts) >(<= _ ) _ => appTimeHelper tt
-           | |- L.app (@extT _ (_ ~> _ ) _ _ ?ints) (@enc _ ?reg ?x) >(<= ?k ) ?v =>
-             change (L.app (@extT _ _ _ _ ints) (@extT _ _ _ _ (reg_is_extT reg x)) >(<= k) v);appTimeHelper tt                                                            
-           | |- _ => idtac
+           | |- L.app (@extT _ (_ ~> _ ) _ _ ?ints) (@enc _ _ ?x) >(<= ?k ) ?v =>
+             change (L.app (@extT _ _ _ _ ints) (@extT _ _ _ _ (reg_is_extT _ x)) >(<= k) v);appTimeHelper tt                                                            
+           | |- L.app (@ext _ (TyB _) _ ?ints) _ >* _ => rewrite ext_is_enc with (Hf:=ints)
+           | |- L.app (@extT _ (TyB _) _ _ ?ints) _ >(<= _ ) _ => rewrite extT_is_enc with (Hf:=ints) 
 
+           | |- _ => idtac
            end
          end
   | |- _ => idtac

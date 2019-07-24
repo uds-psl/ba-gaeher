@@ -12,15 +12,11 @@ Ltac visibleHead t :=
   | _ => t
   end.
 
-Ltac fold_encs :=
-  match goal with
-    x:_ |- _ =>
-    revert x;fold_encs;intros x;
-    let H := fresh "H" in
-    try (assert (H:@enc _ _ x= @enc _ _ x) by reflexivity;
-         try (unfold enc in H at 1; cbn in H;rewrite !H);clear H)
-  | _ => idtac
-  end.
+Ltac fold_encs := repeat(
+    lazymatch goal with
+      enc0:encodable ?X, x:?X |- _ =>
+      progress fold (enc (encodable:=enc0) x)
+    end).
 
 
 Ltac recRem P:=
@@ -192,12 +188,12 @@ Ltac cstep' extractSimp:=
               let xInts := fresh x "Ints" in
               intros x xInt xInts;
               change xInt with (@ext _ _ x (Build_computable xInts));
-              lazymatch type of xInts with
+              (*lazymatch type of xInts with
                 computes (@TyB _ ?reg) _ _ =>
                 rewrite (ext_is_enc (Build_computable xInts)) in *;
                 clear xInt xInts;assert (xInt:True) by constructor; assert (xInts:True) by constructor
               | computes (TyArr _ _) _ _ => idtac
-              end;
+              end;*)
               step n;
               revert x xInt xInts
            | 0 => idtac
@@ -224,19 +220,18 @@ Ltac cstep' extractSimp:=
       eapply computesTyArr;[try Lproc;shelveIfUnsolved "pos1"|idtac];
       intros x xInt xInts;
       change xInt with (@ext _ _ x (Build_computable xInts));
-      lazymatch tt1 with
+      (*lazymatch tt1 with
         TyB _ => rewrite (ext_is_enc (Build_computable xInts)) in *;
                 clear xInt xInts;assert (xInt:True) by constructor; assert (xInts:True) by constructor
       | _ => idtac
-      end;
+      end;*)
       eexists;split;[extractSimp idtac;shelveIfUnsolved "pos2" | intros vProc]
     end
-
-  | |- computes (TyB _) _ ?t=> is_ground t;apply computesTyB
-
-  | |- computes _ _ (@ext _ _)=> apply extCorrect
-
-
+  | |- computes _ _ _ =>  
+    match goal with 
+    | |- computes _ _ (ext _)=> apply extCorrect
+    | |- computes (TyB _) _ ?t=> is_ground t;solve[apply computesTyB|assumption]
+    end
   (* with time bounds: *)                                
   | H : Lock _ |- computesTime _ _ (match ?x with _ => _ end) _=>
     let t := type of x in
@@ -266,13 +261,13 @@ Ltac cstep' extractSimp:=
               (*simple notypeclasses refine (_:computes (_ ~> _) _ _ (fun x xInt xNorm => (_,_)));try exact tt;shelve_unifiable;*) 
               intros x xInt xT; intro_to_assumed x;intro_to_assumed xT;intro xInts;
               change xInt with (@extT _ _ x _ (Build_computableTime xInts));
-              lazymatch type of xInts with
+              (*lazymatch type of xInts with
                 computesTime (@TyB _ ?reg) _ _ _=>
                 rewrite (extT_is_enc (Build_computableTime xInts)) in *;
                 destruct xT;
                 clear xInt xInts;assert (xInt:True) by constructor; assert (xInts:True) by constructor; assert (xT:True) by constructor
               | computesTime (TyArr _ _) _ _ _=> idtac
-              end;
+              end;*)
               step n';
               revert x xInt xT xInts
            | 0 => idtac
@@ -317,18 +312,21 @@ Ltac cstep' extractSimp:=
       split_assumed;[now is_assumed|];
       intros xInt xInts;
       change xInt with (@extT _ _ x _ (Build_computableTime xInts));
-      lazymatch tt1 with
+      (*lazymatch tt1 with
         TyB _ => rewrite (extT_is_enc (Build_computableTime xInts)) in *;
                 clear xInt xInts;assert (xInt:True) by constructor; assert (xInts:True) by constructor
       | _ => idtac
-      end;
+      end;*)
       eexists;split;[extractSimp idtac;shelveIfUnsolved "pos4"| intros vProc]
     end
   (* complexity: *)
 
-  | H : Lock _ |- computesTime (TyB _) _ ?t ?tt=> is_ground t;close_assumed; destruct tt;apply computesTimeTyB
-  | H : Lock _ |-computesTime _ _ (@extT _ _) _ => apply extTCorrect
-
+      
+  | H : Lock _ |- computesTime _ _ _ _ =>
+    match goal with 
+    | |- computesTime _ _ (extT _) _ => close_assumed;simple refine (@extTCorrect _ (TyB _) _ _ _)
+    | |- computesTime (TyB _) _ ?t ?tt=> is_ground t;close_assumed;solve[destruct tt;apply computesTimeTyB|assumption]
+    end
   | |- computesTime _ _ _ _ =>
     match goal with
     |  H : Lock _ |- _ => fail 1
@@ -363,8 +361,8 @@ Ltac cstep := cstep' ltac:(fun _ =>
                                | |- ?G => idtac "cstep found unexpected" G 
                                end;try (idtac;[idtac "could not simplify some occuring term, shelved instead"];shelve)).
 
-                           Ltac computable_match:=
-  intros;
+Ltac computable_match:=
+    intros;
   lazymatch goal with
   | |- ?R ?lhs ?rhs =>
     lazymatch lhs with 
@@ -379,18 +377,21 @@ Ltac cstep := cstep' ltac:(fun _ =>
     end
   end.
 
+
+
 Ltac infer_instances :=
   repeat match goal with
          | [ |- context [ int_ext ?t ] ] => first [change (int_ext t) with (ext t) | fail 3 "Could not fold int-instance for " t]
          | [ |- context [ extT ?t ] ] => first [change (extT t) with (ext t) | fail 3 "Could not fold int-instance for " t]
-         end.
+         end;repeat rewrite !@ext_is_enc.
 
 
 Ltac infer_instancesT :=
   repeat match goal with
          | [ |- context [ int_ext ?t ] ] => first [change (int_ext t) with (extT t) | fail 3 "Could not fold extT-instance for " t]
          | [ |- context [ ext ?t ] ] => first [change (ext t) with (extT t) | fail 3 "Could not fold extT-instance for " t]
-         end.
+         end;repeat rewrite !@extT_is_enc.
+
 
 
 Ltac computable_prepare t :=
@@ -434,7 +435,7 @@ Import Intern.
 Ltac register_inj :=   abstract (intros x; induction x; destruct 0;simpl; intros eq; try (injection eq || discriminate eq);intros;f_equal;auto;try apply inj_enc;try easy).
 
 Ltac register_proc :=
-  unfold enc_f;
+  unfold enc;
   (((induction 0 || intros);
     cbn; fold_encs;Lproc
                         )).
@@ -470,10 +471,10 @@ Tactic Notation "extract" "constructor":=
         lazymatch goal with
         | [ |- computable ?t ] =>
           run_template_program (tmExtractConstr' None t)
-                                 (fun e =>  pose (term:= ( e : extracted t)); computable using term)
+                                 (fun e =>  pose (term:= ( e : extracted t)); computable using term;[cbv; repeat f_equal; eassumption|instantiate (1:=True)])
         | [ |- computableTime ?t _] =>
           run_template_program (tmExtractConstr' None t)
-                               (fun e =>  pose (term:= ( e : extracted t)); computable using term)
+                               (fun e =>  pose (term:= ( e : extracted t)); computable using term;[cbv; repeat f_equal; eassumption|instantiate (1:=True)])
           
    end.
 
@@ -602,13 +603,13 @@ Local Ltac solverecTry :=       cbn [timeComplexity] in *;
 Ltac solverec :=   try abstract (solverecTry);solverecTry.
 
 
-Lemma cast_computable X Y `{registered Y} (cast : X -> Y) (Hc : injective cast) :
+Lemma cast_computable X Y `{R : registered Y} (cast : X -> Y) (Hc : injective cast) :
   let _ := registerAs cast Hc in
   computable cast.
 Proof.
   cbn.
-  pose (t:=lam 0).
-  computable using t.
+  pose (t:=lam 0). 
+  computable using t. 
 Qed.
 
 Lemma cast_computableTime X Y `{registered Y} (cast : X -> Y) (Hc : injective cast):

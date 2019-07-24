@@ -17,7 +17,7 @@ Fixpoint mkLApp (s : term) (L : list term) :=
 Definition encode_arguments (B : term) (a i : nat) A_j :=
       A <- tmUnquoteTyped Type A_j ;;
       name <- (tmEval cbv (name_of A_j ++ "_term") >>=  Core.tmFreshName)  ;;
-      E <- tmTryInfer name None (registered A);;
+      E <- tmTryInfer name None (encodable A);;
       t <- ret (@enc A E);;
       l <- tmQuote t;;
       ret (tApp l [tRel (a - i - 1) ]).
@@ -47,7 +47,7 @@ Definition tmMatchCorrect (A : Type) : Core.TemplateMonad Prop :=
               ret (stack (map (tLambda (nAnon)) ctr_types)
                                (((fun s => mkAppList s C) (tRel (args + 2 * (num - i) - 1)))))
            ) ;;
-   E' <- Core.tmInferInstance None (registered A);;
+   E' <- Core.tmInferInstance None (encodable A);;
    E <- tmGetMyOption E' "failed" ;;        
    t' <- ret (@enc A E);;
    l <- tmQuote t';;
@@ -62,9 +62,9 @@ Definition matchlem n A := (Core.tmBind (tmMatchCorrect A) (fun m => tmLemma n m
 Definition tmGenEncode (n : ident) (A : Type) :=
   e <- tmEncode n A;;
   e <- tmUnquoteTyped (encodable A) (tConst n []);;
-  p <- Core.tmLemma (n ++ "_proc") (forall x : A, proc (@enc_f A e x)) ;;
+  p <- Core.tmLemma (n ++ "_proc") (forall x : A, proc (@enc A e x)) ;;
   n2 <- tmEval cbv ((n ++ "_inj"));;
-  i <- Core.tmLemma n2  (injective (@enc_f _ e)) ;;
+  i <- Core.tmLemma n2  (injective (@enc _ e)) ;;
   n3 <- tmEval cbv ("registered_" ++ n) ;;
   d <- Core.tmDefinition n3  (@mk_registered A e p i);;
   tmExistingInstance n3;;
@@ -72,7 +72,7 @@ Definition tmGenEncode (n : ident) (A : Type) :=
   n4 <- tmEval cbv (n ++ "_correct") ;;
   (Core.tmBind (tmMatchCorrect A) (fun m => tmLemma n4 m ;; ret tt)).
 
-Global Obligation Tactic := try fold (injective (enc_f)); match goal with
+Global Obligation Tactic := try fold (injective (enc)); match goal with
                            | [ |- forall x : ?X, proc ?f ] => register_proc
                            | [ |- injective ?f ] => register_inj
                            | [ |- context [_ >(<= _) _] ] => extract match
