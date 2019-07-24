@@ -6,6 +6,7 @@ Fixpoint timeComplexity t (tt: TT t) : Type :=
   match tt with
     ! _ => unit
   | @TyAll t1 t2 tt1 tt2 => forall (x: t1), timeComplexity tt1 -> (nat*timeComplexity (tt2 x))
+  | @TyAllT T HT => forall X R__X, timeComplexity (HT X R__X)
   end.
 
 Arguments timeComplexity : clear implicits.
@@ -21,6 +22,8 @@ Fixpoint computesTime {t} (ty : TT t) :  forall (x:t) (xInt :term) (xTime :timeC
         computesTime y yInt yTime
         -> let fyTime := fTime y yTime in
           {v : term & (redLe (fst fyTime) (fInt yInt) v) * computesTime (f y) v (snd fyTime)}
+  | @TyAllT T HT =>
+    fun x xInt xTime => {xInt' & (xInt = lam xInt') * forall (X:Type) R__X, computesTime (x X) xInt' (xTime X R__X)}%type
   end%type.
 
 Arguments computesTime {_} _ _ _ _.
@@ -52,6 +55,7 @@ Local Fixpoint notHigherOrder t (ty : TT t) :=
     | _ => fun _ _ => False
     end) t2 ty2
   | TyB _ => True
+  | TyAllT HT => forall X (R__X:registered X), notHigherOrder (HT _ R__X)
   end.
 
 Local Lemma computesTime_computes_intern s t (ty: TT t) f evalTime:
@@ -67,6 +71,7 @@ Proof.
    intros. subst.
    edestruct (ints a _ tt eq_refl) as(v&R'&?).
    exists v. split. eapply redLe_star_subrelation. all:eauto.
+  -destruct int as (?&->&?). cbn in *. intros. eauto.
 Defined.
 
 Lemma computableTime_computable X (ty : TT X) (x:X) fT :
@@ -82,9 +87,11 @@ Hint Extern 10 (@computable ?t ?ty ?f) =>
 Lemma computesTimeProc t (ty : TT t) (f : t) fInt fT:
   computesTime ty f fInt fT-> proc fInt.
 Proof.
-  destruct ty.
+  induction ty in f,fInt,fT|- *.
   -intros ->. unfold enc. now destruct R. 
   -now intros [? _].
+  -cbn in *. intros (?&->&?).  split. 2:easy. eapply closed_dcl. constructor. apply closed_dcl_x.
+   eapply H with (R__X:= Computable.registered_nonempty). easy.
 Qed.
 
 Lemma proc_extT {X : Type} (ty : TT X) (x : X) fT ( H : computableTime x fT) : proc (extT x).
@@ -146,6 +153,14 @@ Proof.
   apply evalLe_eval_subrelation in E. split. rewrite <- E. apply app_closed. apply H0. apply computesTimeProc in yInts. apply yInts. apply E. 
 Qed.
 
+Lemma computesTimeTyAllT_helper T {HT : forall t, registered t -> TT (T t)} (f: forall (t:Type), T t) fInt fT:
+  (forall (X : Type) (R__X : registered X),
+      computesTime (HT X R__X) (f X) fInt (fT X R__X))%type
+-> computesTime (TyAllT HT) f (lam fInt) fT.
+Proof.
+  intros H. do 2 esplit. reflexivity. eassumption.
+Qed.
+
 Definition computesTimeIf {t} (ty : TT t) (f:t) (fInt : term) (P:timeComplexity t-> Prop) : Type :=
   forall fT, P fT -> computesTime ty f fInt fT.
 Arguments computesTimeIf {_} _ _ _ _.
@@ -189,7 +204,7 @@ Qed.
 Lemma computesTimeExt X (tt : TT X) (x x' : X) s fT:
   extEq x x' -> computesTime tt x s fT -> computesTime tt x' s fT.
 Proof.
-  induction tt as [|? ? ? ? IH1 IH2]in x,x',s,fT |-*;intros eq.
+  induction tt as [|? ? ? ? IH1 IH2|? ? ?]in x,x',s,fT |-*;intros eq.
   -inv eq. tauto.
   -cbn in eq|-*. intros [H1 H2]. split. 1:tauto.
    intros y t yT ints.
@@ -197,6 +212,7 @@ Proof.
    exists v. split. 1:assumption.
    eapply IH2. 2:now eassumption.
    apply eq.
+  -cbn in *. intros (?&->&?). eauto. 
 Qed.
 
 Lemma computableTimeExt X (tt : TT X) (x x' : X) fT:
@@ -204,7 +220,7 @@ Lemma computableTimeExt X (tt : TT X) (x x' : X) fT:
   intros ? [s ?]. eexists. eauto using computesTimeExt.
 Defined.
 
-
+(*
 Fixpoint changeResType_TimeComplexity t1 (tt1 : TT t1) Y {R: registered Y} {struct tt1}:
   forall (fT: timeComplexity t1) , @timeComplexity _ (projT2 (changeResType tt1 (TyB Y))):= (
   match tt1 with
@@ -226,7 +242,7 @@ Proof.
    specialize (exts x s__x ext__x) as (v &?&exts). eassumption.
    exists v. split. tauto.
    eapply X0. all:eassumption.
-Qed.
+Qed. *)
   
 Definition cnst {X} (x:X):nat. exact 0. Qed.
  
@@ -241,12 +257,13 @@ Fixpoint timeComplexity_leq (t : Type) (tt : TT t) {struct tt} : timeComplexity 
   | ! t0 => fun _ _ => True
   | @TyAll t1 t2 _ tt2 =>
     fun f f' : timeComplexity (forall x, _) => forall (x:t1) xT, (fst (f x xT)) <= (fst (f' x xT)) /\ timeComplexity_leq (snd (f x xT)) (snd (f' x xT))
+  | @TyAllT _ HT => fun f g => forall X (R__X : registered X), timeComplexity_leq (f _ R__X) (g _ R__X)
   end.
 
 Lemma computesTime_timeLeq X (tt : TT X) x s fT fT':
   timeComplexity_leq fT fT' -> computesTime tt x s fT -> computesTime tt x s fT'.
 Proof.
-  induction tt as [|? ? ? ? IH1 IH2]in x,s,fT,fT' |-*;intros eq.
+  induction tt as [|? ? ? ? IH1 IH2|]in x,s,fT,fT' |-*;intros eq.
   -inv eq. tauto.
   -cbn in eq|-*. intros [H1 H2]. split. 1:tauto.
    intros y t yT ints.
@@ -254,4 +271,5 @@ Proof.
    exists v. specialize (eq y yT) as (Hleq&?). split.
    +rewrite <- Hleq. eassumption.
    +eauto.
+  -cbn in *. intros (?&->&?). eauto.
 Qed.

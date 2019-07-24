@@ -23,12 +23,15 @@ Arguments enc : simpl never.  (* Never unfold with cbn/simpl *)
 
 Inductive TT : Type -> Type :=
   TyB t (R : registered t) : TT t
-| TyAll t1 t2 (tt1 : TT t1) (tt2 : (forall x : t1, TT (t2 x)))
-  : TT (forall x : t1, t2 x).
+| TyAll t1 (t2: t1 -> Type) (tt1 : TT t1) (tt2 : (forall x : t1, TT (t2 x)))
+  : TT (forall x : t1, t2 x)
+| TyAllT {T : Type -> Type} (HT : forall X (R__X : registered X), TT (T X)) : TT (forall X, T X).
 
 Existing Class TT.
 Existing Instance TyB.
 Existing Instance TyAll.
+Existing Instance TyAllT.
+
   
 Arguments TyB _ {_}.
 Arguments TyAll {_} {_} _ _.
@@ -47,14 +50,21 @@ Fixpoint computes {A} (tau : TT A) {struct tau}: A -> L.term -> Type :=
       proc t_f * forall (a : A) t_a,
         computes tau1 a t_a
         ->  {v : term & (t_f t_a >* v) * computes (tau2 a) (f a) v}
+  | @TyAllT T HT =>
+    fun x xInt => {xInt' : term & (xInt = lam xInt') * forall (X:Type) R__X, computes (HT X R__X) (x X) xInt'}%type 
   end%type.
+
+Local Definition registered_nonempty : registered (unit).
+exists (fun _ => I). all:cbv. eauto. intros [] []. congruence.
+Qed.
 
 Lemma computesProc t (ty : TT t) (f : t) fInt:
   computes ty f fInt -> proc fInt.
 Proof.
-  destruct ty.
+  induction ty in f,fInt|-*.
   -intros ->. unfold enc. now destruct R. 
   -now intros [? _].
+  -intros (?&->&?). split. 2:easy. rewrite closed_dcl. econstructor. eapply closed_dcl_x. eapply H with (R__X:=registered_nonempty). easy.
 Qed.
 
 (* This is for a user to give an definition *)
@@ -160,6 +170,7 @@ Fixpoint extEq t {tt:TT t} : t -> t -> Prop:=
   match tt with
     TyB _ => eq
   | @TyAll t1 t2 tt1 tt2 => fun f f' => forall (x : t1), extEq (f x) (f' x)
+  | @TyAllT T HT => fun f f' => forall X (R__X: registered X), extEq (f X) (f' X)
   end.
 
 
@@ -169,12 +180,13 @@ Proof.
   induction tt;cbn.
   -reflexivity.
   -intros f x. eauto.
+  -intros. eapply H.
 Qed.
 
 Lemma computesExt X (tt : TT X) (x x' : X) s:
   extEq x x' -> computes tt x s -> computes tt x' s.
 Proof.
-  induction tt as [|? ? ? ? IH1 IH2 ]in x,x',s |-*;intros eq.  
+  induction tt as [|? ? ? ? IH1 IH2 |T HT IH]in x,x',s |-*;intros eq.  
   -inv eq. tauto.
   -cbn in eq|-*. intros [H1 H2]. split. 1:tauto.
    intros y t exts.
@@ -182,6 +194,7 @@ Proof.
    exists v. split. 1:assumption.
    eapply IH2. 2:now eassumption.
    apply eq.
+  -cbn. intros (?&->&?). do 2 eexists. split. intros. eapply IH. all:eauto. 
 Qed.
 
 Lemma computableExt X (tt : TT X) (x x' : X):
@@ -199,7 +212,7 @@ Defined.
 Arguments registerAs {_ _ _} _ _.
 
 (** Support for extracting registerAs-ed functions *)
-
+(*
 Fixpoint changeResType t1 t2 (tt1:TT t1) (tt2 : TT t2) : {t & TT t}:=
   match tt1 with
     TyB _ => existT _ t2 tt2
@@ -233,5 +246,5 @@ Proof.
    exists v. split. tauto.
    eapply X0. all:eassumption.
 Qed.
-
+*)
 Opaque computes.

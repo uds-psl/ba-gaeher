@@ -244,6 +244,8 @@ Ltac cstep' extractSimp:=
 
   | |- computes (TyB _) _ ?t=> is_ground t;apply computesTyB
 
+  | |- computes (TyAllT _) _ _ =>
+    fail 1000 "todo: write helper as for Time"                    
   | |- computes _ _ (@ext _ _)=> apply extCorrect
 
 
@@ -347,6 +349,11 @@ Ltac cstep' extractSimp:=
   | H : Lock _ |- computesTime (TyB _) _ ?t ?tt=> is_ground t;close_assumed; destruct tt;apply computesTimeTyB
   | H : Lock _ |-computesTime _ _ (@extT _ _) _ => apply extTCorrect
 
+  | H : Lock _ |- computesTime (TyAllT _) _ _ _ =>
+    eapply computesTimeTyAllT_helper;
+    let X := fresh "X" in
+    let R__X := fresh "R__X" in
+    intros X;intro_to_assumed X;intros R__X;intro_to_assumed R__X                                           
   | |- computesTime _ _ _ _ =>
     match goal with
     |  H : Lock _ |- _ => fail 1
@@ -625,7 +632,7 @@ Local Ltac solverecTry :=       cbn [timeComplexity] in *;
                                          try (let H:= fresh "H" in destruct _ eqn:H);cbn -[mult plus];try ring_simplify);try lia).
 Ltac solverec :=   try abstract (solverecTry);solverecTry.
 
-
+(*
 Lemma cast_computable X Y `{registered Y} (cast : X -> Y) (Hc : injective cast) :
   let _ := registerAs cast Hc in
   computable cast.
@@ -660,5 +667,5 @@ Ltac computable_casted_result :=
       cbn - [registerAs];reflexivity| ];
     cbn
   end.
-
+*)
 

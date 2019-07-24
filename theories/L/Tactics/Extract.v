@@ -97,7 +97,7 @@ Fixpoint tmIsType (s : Ast.term) : TemplateMonad bool :=
 Definition tmNumConstructors (n : kername) : TemplateMonad nat :=
   i <- tmQuoteInductive n ;;
     match ind_bodies i with
-      [ i ] => tmEval cbv (| ind_ctors i |)
+      [ i' ] => tmEval cbv (| ind_ctors i' |)
     | _ => tmFail "Mutual inductive types are not supported"
     end.
 
@@ -271,12 +271,25 @@ Definition tmEncode (name : ident) (A : Type) :=
 
 (** *** Generation of constructors *)
 
+(** is this a type of something we eliminate? We only eleminate Types *)
+Fixpoint toElimConstr (ty : Ast.term) : TemplateMonad bool :=
+  match ty with
+  | Ast.tSort _ => ret true
+  | Ast.tRel _ => ret false
+  | _ => tmMsg "toElimConstr does not know this:";;tmPrint ty;;ret false
+  end.
+
+(*
 Definition gen_constructor args num i  := 
   it lam args (it lam num (it_i (fun n s => app s (n + num)) args (var (num - i - 1)))).
+*)
+Definition gen_constructor (args:list bool) num i  := 
+  it lam (|args|) (it lam num (fst (fold_left (fun '(s,i) (b:bool) => (app s (if b then (lam 0) else (var i)),S i)) args (var (num - i - 1),num - 1)))).
 
 Definition extract_constr {A} (a : A) (n : ident) (i : nat) (t : Ast.term) (def : option ident) :=
   num <- tmNumConstructors n ;;
-      r <- tmEval cbv (gen_constructor (|argument_types t|) num i : extracted a) ;;
+      args <- monad_map toElimConstr (argument_types t);;
+      r <- tmEval cbv (gen_constructor args num i : extracted a) ;;
       match def with
       |  Some def =>  def <- tmFreshName def ;;
                          tmDefinitionRed def None r ;;
@@ -289,8 +302,8 @@ Definition tmExtractConstr' (def : option ident) {A : Type} (a : A) :=
   s <- (tmEval cbv a >>= tmQuote) ;;
   t <- (tmEval hnf A >>= tmQuote) ;;
      match s with
-     | Ast.tApp (Ast.tConstruct (mkInd n _) i _) _ =>
-         extract_constr a n i t def
+     (*| Ast.tApp (Ast.tConstruct (mkInd n _) i _) _ =>
+         extract_constr a n i t def*)
      | Ast.tConstruct (mkInd n _) i _ =>
          extract_constr a n i t def
      | _ => tmFail "this is not a constructor"
@@ -391,26 +404,38 @@ Definition inferHead (s:Ast.term) (R:list Ast.term) : TemplateMonad ((L.term + A
   | _ => ret (inr s,R)
   end.
 
-Fixpoint extract (env : nat -> nat) (s : Ast.term) (fuel : nat) : TemplateMonad L.term :=
+Fixpoint toElim (ty : Ast.term) : TemplateMonad bool :=
+  match ty with
+  | tSort _ => ret true
+  | tInd _ _ => ret false
+  | tProd _ _ _ => ret false
+  | tVar _ => ret false
+  | _ => tmMsg "toElim does not know this:";;tmPrint ty;;ret false
+  end.
+
+Definition addToElim (elim : nat -> bool) b (n:nat) : bool :=
+  match n with 0 => b | S n => elim n end.
+
+Fixpoint extract (env : nat -> nat) (s : Ast.term) (elim : nat -> bool) (fuel : nat) : TemplateMonad L.term :=
   match fuel with 0 => tmFail "out of fuel" | S fuel =>
   match s with
     Ast.tRel n =>
-    t <- tmEval cbv (var (env n));;
-                        ret t
-  | Ast.tLambda _ _ s =>
-    t <- extract (↑ env) s fuel ;;
+    if (elim n) then ret (lam 0) else tmEval cbv (var (env n))
+  | Ast.tLambda _ ty s =>
+    b <- toElim ty;;
+    t <- extract (↑ env) s (addToElim elim b) fuel ;;
       ret (lam t)
   | Ast.tFix [BasicAst.mkdef _ nm ty s _] _ =>
-    t <- extract (fun n => S (env n)) (Ast.tLambda nm ty s) fuel ;;
+    t <- extract (fun n => S (env n)) (Ast.tLambda nm ty s) elim fuel ;;
     ret (rho t)
   | Ast.tApp s R =>
     res <- inferHead s R;;
     let '(res,R') := res in
     t <- (match res with
             inl s' => ret s'
-          | inr s => extract env s fuel
+          | inr s => extract env s elim fuel
           end);;
-      monad_fold_left (fun t1 s2 => t2 <- extract env s2 fuel ;; ret (app t1 t2)) R' t
+      monad_fold_left (fun t1 s2 => t2 <- extract env s2 elim fuel ;; ret (app t1 t2)) R' t
     (*else
       let (P, L) := (firstn params R,skipn params R)  in
       s' <- tmEval cbv (Ast.tApp s P);;
@@ -435,23 +460,26 @@ Fixpoint extract (env : nat -> nat) (s : Ast.term) (fuel : nat) : TemplateMonad 
     i <- tmTryInfer nm (Some cbn) (extracted a') ;;
       ret (@int_ext _ _ i)
   | Ast.tCase _ _ s cases =>
-    let fix extractCaseEtaExpand (env : nat -> nat) (s:Ast.term) (k:nat) {struct k}: TemplateMonad L.term :=
+    let fix extractCaseEtaExpand (env : nat -> nat) (s:Ast.term) (elim : nat -> bool)(k:nat) {struct k}: TemplateMonad L.term :=
         match k,s with
           0,_ =>
-          t <- extract (fun i => S (env i)) s fuel;;
+          t <- extract (fun i => S (env i)) s elim fuel;;
             ret (lam t)
-        | S k,tLambda _ _ s =>
-          t <- extractCaseEtaExpand (↑ env) s k ;;
+        | S k,tLambda _ ty s =>
+          b <- toElim ty;;
+          t <- extractCaseEtaExpand (↑ env) s (addToElim elim b) k ;;
             ret (lam t)
         | S _, _ => tmFail "Match case does not contain the expected abstractions for bound argument."
         end
     in
-    t <- extract env s fuel ;;
-      M <- monad_fold_left (fun t1 '(n,s2) => t2 <- extractCaseEtaExpand env s2 n;; ret (app t1 t2)) cases t ;;
+    t <- extract env s elim fuel ;;
+      M <- monad_fold_left (fun t1 '(n,s2) => t2 <- extractCaseEtaExpand env s2 elim n;; ret (app t1 t2)) cases t ;;
       ret (app M I)
-  | Ast.tLetIn _ s1 _ s2 =>
-    t1 <- extract env s1 fuel ;;
-    t2 <- extract (↑ env) s2 fuel ;;
+  | Ast.tLetIn _ s1 defTy s2 =>
+    tmMsg "TODO: make box?";;
+    t1 <- extract env s1 elim fuel ;;
+       b <- toElim defTy ;;
+    t2 <- extract (↑ env) s2 (addToElim elim b) fuel ;;
     ret( app (lam t2) t1)
      
   | Ast.tFix _ _ => tmFail "Mutual Fixpoints are not supported"                          
@@ -485,7 +513,7 @@ Definition tmUnfoldTerm {A}(a:A) :=
 
 Definition tmExtract (nm : option string) {A} (a : A) : TemplateMonad L.term :=
   q <- tmUnfoldTerm a ;;
-  t <- extract (fun x => x) q FUEL ;;
+  t <- extract (fun x => x) q (fun _ => false) FUEL ;;
   match nm with
     Some nm => nm <- tmFreshName nm ;;
                  @tmDefinitionRed nm None (extracted a) t ;;

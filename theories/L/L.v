@@ -44,7 +44,6 @@ Fixpoint TH n s :=
 (*   end. *)
 
 Definition convert:=TH 0.
-Coercion convert : hoas >-> term.
 
 Coercion var : nat >-> term.
 
@@ -71,15 +70,15 @@ Coercion hter : term >-> hoas.
 
 (** Important terms *)
 
-Definition r : term := Eval simpl in λ r f, f (λ x , r r f x). 
-Definition R : term := r r.
+Definition r  := Eval simpl in convert (λ r f, f (λ x , r r f x)). 
+Definition R  := r r.
 
-Definition rho s : term := Eval simpl in λ x, r r s x. 
+Definition rho s : term := Eval simpl in convert (λ x, r r s x). 
 
-Definition I : term := Eval simpl in λ x, x.
-Definition K : term := Eval simpl in λ x y, x.
+Definition I : term := Eval simpl in convert (λ x, x).
+Definition K : term := Eval simpl in convert (λ x y, x).
 
-Definition omega : term := Eval simpl in λ x , x x.
+Definition omega : term := Eval simpl in convert (λ x , x x).
 Definition Omega : term := omega omega.
 
 (**  Substitution *)
