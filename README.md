@@ -111,11 +111,13 @@ The files in tex/ are Copyright 2019-2020 Lennard Gäher. The files in tex/thesi
 
 ### Contributors of the underlying undecidability library 
 
+- Andrej Dudenhefner
 - Yannick Forster
 - Edith Heiter
-- Dominik Kirst 
+- Dominik Kirst
 - Fabian Kunze
 - Dominique Larchey-Wendling
 - Gert Smolka
+- Simon Spies
+- Dominik Wehr
 - Maximilian Wuttke
-
